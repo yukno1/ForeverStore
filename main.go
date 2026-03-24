@@ -11,6 +11,7 @@ func OnPeer(p p2p.Peer) error {
 	fmt.Println("doing some logic with the peer outside of TCPTransport")
 	p.Close()
 	return nil
+	// return fmt.Errorf("failed the onpeer func")
 }
 
 func main() {
