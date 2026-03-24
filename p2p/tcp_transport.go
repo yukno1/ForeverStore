@@ -78,18 +78,15 @@ func (t *TcpTransport) handleConn(conn net.Conn) {
 		return
 	}
 
-	// lenDecoderError := 0
 	// Read loop
 	msg := &Message{}
 	for {
 		if err := t.Decoder.Decode(conn, msg); err != nil {
-			// lenDecoderError++
-			// if lenDecoderError == 5 {
-
-			// }
-			fmt.Printf("tcp error: %s\n", err)
+			fmt.Printf("TCP error: %s\n", err)
 			continue
 		}
+
+		msg.From = conn.RemoteAddr()
 
 		fmt.Printf("message: %+v\n", msg)
 	}
