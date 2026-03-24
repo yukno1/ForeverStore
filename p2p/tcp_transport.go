@@ -3,7 +3,7 @@ package p2p
 import (
 	"fmt"
 	"net"
-	"sync"
+	"reflect"
 )
 
 // TCPPeer represents the remote node over a TCP established connection
@@ -22,24 +22,36 @@ func NewTCPPeer(conn net.Conn, outbound bool) *TCPPeer {
 	}
 }
 
+// Close implements the Peer interface
+func (p *TCPPeer) Close() error {
+	return p.conn.Close()
+}
+
 type TcpTransportOptions struct {
 	ListenAddr    string
 	HandshakeFunc HandshakeFunc
 	Decoder       Decoder
+	OnPeer        func(Peer) error
 }
 
 type TcpTransport struct {
-	listener net.Listener
 	TcpTransportOptions
-
-	mu    sync.RWMutex //mutex
-	peers map[net.Addr]Peer
+	listener net.Listener
+	rpcch    chan RPC
 }
 
 func NewTcpTransport(opts TcpTransportOptions) *TcpTransport {
 	return &TcpTransport{
 		TcpTransportOptions: opts,
+		rpcch:               make(chan RPC),
 	}
+}
+
+// Consume implements the Transport interface
+// return a read-only channel
+// for reading message received from another peer
+func (t *TcpTransport) Consume() <-chan RPC {
+	return t.rpcch
 }
 
 func (t *TcpTransport) ListenAndAccept() error {
@@ -67,28 +79,45 @@ func (t *TcpTransport) startAcceptLoop() {
 	}
 }
 
-type Temp struct{}
-
 func (t *TcpTransport) handleConn(conn net.Conn) {
+	var err error
+
+	defer func() {
+		fmt.Printf("dropping peer connection: %s", err)
+		conn.Close()
+	}()
+
 	peer := NewTCPPeer(conn, true)
 
-	if err := t.HandshakeFunc(peer); err != nil {
+	if err = t.HandshakeFunc(peer); err != nil {
 		fmt.Printf("TCP handshake error: %s\n", err)
-		conn.Close()
 		return
 	}
 
+	// if provide this func
+	if t.OnPeer != nil {
+		if err = t.OnPeer(peer); err != nil {
+			return
+		}
+	}
+
 	// Read loop
-	msg := &Message{}
+	rpc := RPC{}
 	for {
-		if err := t.Decoder.Decode(conn, msg); err != nil {
-			fmt.Printf("TCP error: %s\n", err)
-			continue
+		err = t.Decoder.Decode(conn, &rpc)
+		fmt.Println(reflect.TypeOf(err))
+		// panic(err)
+
+		if err != nil {
+			fmt.Printf("TCP read error: %s\n", err)
+			// continue
+			return
 		}
 
-		msg.From = conn.RemoteAddr()
+		rpc.From = conn.RemoteAddr()
+		t.rpcch <- rpc
 
-		fmt.Printf("message: %+v\n", msg)
+		// fmt.Printf("message: %+v\n", rpc)
 	}
 
 	// fmt.Printf("new incoming connection %+v\n", peer)
